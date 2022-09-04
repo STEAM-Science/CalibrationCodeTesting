@@ -3,8 +3,8 @@ from scipy.optimize import curve_fit
 import numpy as np
 import glob
 import cv2
-import argsparse
-
+import argparse
+from scipy.stats import norm
 
 ### Read spectrum file and return calibration data and spectrum
 def readSpectrumFile(filePath):
@@ -197,8 +197,35 @@ def fit_ROIs(filePath):
 		ROIBins = bins[ROIIndices[0]:ROIIndices[1]]
 		ROICounts = calibratedSpectrum[ROIIndices[0]:ROIIndices[1]]
 
+		# Find peak value of line
+		maxCount = np.amax(ROICounts)
+
+		# Find half the peak
+		halfMax = maxCount//2
+
+		# Find all points above half the peak
+		halfMaxMask = ROICounts >= halfMax
+
+		# Find indices inside half max
+		halfMaxIndices = np.where(halfMaxMask == True)
+
+		# Find half maxes
+		leftHalfMax = halfMaxIndices[0][0]
+		rightHalfMax = halfMaxIndices[0][-1]
+
+		# Estimate standard deviation with FWHM
+		stdEstimate = (rightHalfMax - leftHalfMax)/2.4
+
+		# Find energy of spectral line
+		peakEnergy = ROIBins[np.where(ROICounts == maxCount)[0][0]]
+
+		print('Estimated fit parameters:')
+		print(f'A = {5*maxCount}')
+		print(f'σ = {stdEstimate}')
+		print(f'μ = {peakEnergy}\n')
+
 		# Fit the gaussian to the ROI
-		popt, pcov = curve_fit(gaussian, ROIBins, ROICounts)
+		popt, pcov = curve_fit(gaussian, ROIBins, ROICounts, p0=[5*maxCount, stdEstimate, peakEnergy])
 
 		print('Computed fit parameters:')
 		print(f'A = {popt[0]}')
@@ -236,6 +263,19 @@ def fit_ROIs(filePath):
 ### Main functioning of script
 def main(args):
 
+	## Check if user wants to fit ROIs automatically
+	if args.ROIs:
+
+		print(args.src)
+
+		# Run fit_ROIs
+		fit_ROIs(args.src)
+
+	## If the user wants to do it manually instead
+	else:
+
+		# fit_manual(args)
+		return
 
 
 	return
@@ -248,7 +288,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Process inputs to calibrate spectra.')
 
 	## Choose spectrum sourse
-	parser.add_argument('--src', action='store', nargs='?', type=str, default='spectra/55Fe Si.txt', help='Spectrum source file.')
+	parser.add_argument('--src', action='store', nargs='?', type=str, default='spectra/55Fe_CdTe.txt', help='Spectrum source file.')
 
 	## Choose whether or not to fit automatic ROIs
 	parser.add_argument('--ROIs', action='store_true', help='Choose whether to automatically fit ROIs.')
@@ -258,8 +298,3 @@ if __name__ == '__main__':
 
 	## Call main
 	main(args)
-
-	
-	# fit_ROIs('Spectra/55Fe CdTe.txt')
-	# fit_ROIs('Spectra/133Ba CdTe.txt')
-	# fit_ROIs('Spectra/241Am CdTe.txt')
