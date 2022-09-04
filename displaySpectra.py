@@ -3,6 +3,7 @@ from scipy.optimize import curve_fit
 import numpy as np
 import glob
 import cv2
+import argsparse
 
 
 ### Read spectrum file and return calibration data and spectrum
@@ -231,9 +232,34 @@ def fit_ROIs(filePath):
 		plt.clf()
 
 
+
+### Main functioning of script
+def main(args):
+
+
+
+	return
+
+
 ### Run if file is run directly
 if __name__ == '__main__':
+
+	## Create new parser
+	parser = argparse.ArgumentParser(description='Process inputs to calibrate spectra.')
+
+	## Choose spectrum sourse
+	parser.add_argument('--src', action='store', nargs='?', type=str, default='spectra/55Fe Si.txt', help='Spectrum source file.')
+
+	## Choose whether or not to fit automatic ROIs
+	parser.add_argument('--ROIs', action='store_true', help='Choose whether to automatically fit ROIs.')
+
+	## Parse arguments
+	args = parser.parse_args()
+
+	## Call main
+	main(args)
+
 	
-	fit_ROIs('Spectra/55Fe CdTe.txt')
+	# fit_ROIs('Spectra/55Fe CdTe.txt')
 	# fit_ROIs('Spectra/133Ba CdTe.txt')
 	# fit_ROIs('Spectra/241Am CdTe.txt')
