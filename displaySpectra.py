@@ -1,10 +1,12 @@
 import matplotlib.pyplot as plt
+from matplotlib.backend_bases import MouseButton
 from scipy.optimize import curve_fit
 import numpy as np
 import glob
 import cv2
 import argparse
 from scipy.stats import norm
+from mpl_point_clicker import clicker
 
 ### Read spectrum file and return calibration data and spectrum
 def readSpectrumFile(filePath):
@@ -138,7 +140,7 @@ def gaussian(xs, A, sigma, mu):
 
 
 ### Function to fit pre-defined ROIS 
-def fit_ROIs(filePath):
+def fit_ROIs(filePath, clip=0):
 
 	## Use readSpectrumFile() to read file
 	calibrationData, spectralData = readSpectrumFile(filePath)
@@ -146,8 +148,11 @@ def fit_ROIs(filePath):
 	## Calibrate output of file with calibration data
 	bins, calibratedSpectrum = calibrateSpectrum(calibrationData, spectralData)
 
-	## Clip the spectrum to remove noise (optional)
-	# spectralData = np.clip(spectralData, a_min = 0, a_max = 6000)
+	## If user wanted to clip the data
+	if clip != 0:
+
+		# Clip the spectrum to remove noise (optional)
+		spectralData = np.clip(spectralData, a_min = 0, a_max = clip)
 
 	## Flag to keep track of whether the line is ROI info
 	ROIFlag = False
@@ -197,40 +202,8 @@ def fit_ROIs(filePath):
 		ROIBins = bins[ROIIndices[0]:ROIIndices[1]]
 		ROICounts = calibratedSpectrum[ROIIndices[0]:ROIIndices[1]]
 
-		# Find peak value of line
-		maxCount = np.amax(ROICounts)
-
-		# Find half the peak
-		halfMax = maxCount//2
-
-		# Find all points above half the peak
-		halfMaxMask = ROICounts >= halfMax
-
-		# Find indices inside half max
-		halfMaxIndices = np.where(halfMaxMask == True)
-
-		# Find half maxes
-		leftHalfMax = halfMaxIndices[0][0]
-		rightHalfMax = halfMaxIndices[0][-1]
-
-		# Estimate standard deviation with FWHM
-		stdEstimate = (rightHalfMax - leftHalfMax)/2.4
-
-		# Find energy of spectral line
-		peakEnergy = ROIBins[np.where(ROICounts == maxCount)[0][0]]
-
-		print('Estimated fit parameters:')
-		print(f'A = {5*maxCount}')
-		print(f'σ = {stdEstimate}')
-		print(f'μ = {peakEnergy}\n')
-
-		# Fit the gaussian to the ROI
-		popt, pcov = curve_fit(gaussian, ROIBins, ROICounts, p0=[5*maxCount, stdEstimate, peakEnergy])
-
-		print('Computed fit parameters:')
-		print(f'A = {popt[0]}')
-		print(f'σ = {popt[1]}')
-		print(f'μ = {popt[2]}\n')
+		# Get Gaussian image
+		popt, pcov = getGaussFit(ROIBins, ROICounts)
 
 		# Get counts for the fit curve
 		FitCounts = gaussian(ROIBins, *popt)
@@ -260,23 +233,168 @@ def fit_ROIs(filePath):
 
 
 
+### Get Gaussian fit to data
+def getGaussFit(xs, ys):
+
+	## Find peak value of line
+	maxCount = np.amax(ys)
+
+	## Find half the peak
+	halfMax = maxCount//2
+
+	## Find all points above half the peak
+	halfMaxMask = ys >= halfMax
+
+	## Find indices inside half max
+	halfMaxIndices = np.where(halfMaxMask == True)
+
+	## Find half maxes
+	leftHalfMax = halfMaxIndices[0][0]
+	rightHalfMax = halfMaxIndices[0][-1]
+
+	## Estimate standard deviation with FWHM
+	stdEstimate = (rightHalfMax - leftHalfMax)/2.4
+
+	## Find energy of spectral line
+	peakEnergy = xs[np.where(ys == maxCount)[0][0]]
+
+	print('Estimated fit parameters:')
+	print(f'A = {5*maxCount}')
+	print(f'σ = {stdEstimate}')
+	print(f'μ = {peakEnergy}\n')
+
+	## Fit the gaussian to the ROI
+	popt, pcov = curve_fit(gaussian, xs, ys, p0=[5*maxCount, stdEstimate, peakEnergy])
+
+	print('Computed fit parameters:')
+	print(f'A = {popt[0]}')
+	print(f'σ = {popt[1]}')
+	print(f'μ = {popt[2]}\n')
+
+	## Return fit parameters
+	return popt, pcov
+
+
+
+### Fit regions manually
+def fit_manual(filePath, clip=0):
+
+	## Function to easily plot data
+	def plotData(xs, ys, plotArgs):
+
+		# Plot whole spectrum
+		plt.plot(xs, ys, color=plotArgs['color'], label=plotArgs['label'])
+
+		# Add title
+		plt.title(plotArgs['title'])
+
+		# Add axes labels
+		plt.xlabel(plotArgs['xlabel'])
+		plt.ylabel(plotArgs['ylabel'])
+
+		# If user wants to show a legend
+		if plotArgs['legend']:
+
+			# Add legend
+			plt.legend()
+
+	## Use readSpectrumFile() to read file
+	calibrationData, spectralData = readSpectrumFile(filePath)
+
+	## Calibrate output of file with calibration data
+	bins, calibratedSpectrum = calibrateSpectrum(calibrationData, spectralData)
+
+	## If user wants to clip the data
+	if clip != 0:
+
+		# Clip the spectrum to remove noise (optional)
+		calibratedSpectrum = np.clip(calibratedSpectrum, a_min = 0, a_max = clip)
+
+	## Title text
+	titleText = filePath.split('/')[-1].split('.')[0] + ' select points to fit.'
+
+	## Create dictionary to store plotting parameters
+	plotArgs = {
+		'color': 'k',
+		'label': 'data',
+		'xlabel': 'keV',
+		'ylabel': 'counts',
+		'title': titleText,
+		'legend': True
+	}
+
+	## Plot data
+	plotData(bins, calibratedSpectrum, plotArgs)
+
+	## Get point inputs
+	points = np.asarray(plt.ginput(2))
+
+	## Get start and end 'x' coordinates
+	startX = points[0][0]
+	endX = points[1][0]
+
+	## Width from start to end
+	width = endX - startX
+
+	## Extra region to plot (in percent)
+	extraR = 0.2
+
+	print(f'Fitting region from {startX} keV to {endX} keV.\n')
+
+	## Close the plot
+	plt.close()
+
+	## Title text
+	plotArgs['title'] = filePath.split('/')[-1].split('.')[0] + ' fit'
+
+	## Plot data
+	plotData(bins, calibratedSpectrum, plotArgs)
+
+	## Plot the correct ranges
+	plt.xlim(startX - width*(extraR/2), endX + width*(extraR/2))
+
+	## Create mask for certain values
+	mask = (bins > startX) & (bins < endX)
+
+	## Mask the bins and calibrated spectrum
+	maskedBins = bins[mask]
+	maskedSpectrum = calibratedSpectrum[mask]
+
+	## Fit the gaussian to the ROI
+	popt, pcov = getGaussFit(maskedBins, maskedSpectrum)
+
+	## Get counts for the fit curve
+	FitCounts = gaussian(maskedBins, *popt)
+
+	## Plot gaussian fit of ROI
+	plt.plot(maskedBins, FitCounts, color='red', label='Gaussian fit')
+
+	## Show plots
+	plt.show()
+
+
+
 ### Main functioning of script
 def main(args):
 
 	## Check if user wants to fit ROIs automatically
 	if args.ROIs:
 
-		print(args.src)
+		print(f"Analyzing ROIs in {args.src}.")
 
 		# Run fit_ROIs
-		fit_ROIs(args.src)
+		fit_ROIs(args.src, int(args.clip))
+
+		return
 
 	## If the user wants to do it manually instead
 	else:
 
-		# fit_manual(args)
-		return
+		print(f"Analyzing {args.src} manually.")
 
+		# Run fit manual
+		fit_manual(args.src, int(args.clip))
+		return
 
 	return
 
@@ -292,6 +410,9 @@ if __name__ == '__main__':
 
 	## Choose whether or not to fit automatic ROIs
 	parser.add_argument('--ROIs', action='store_true', help='Choose whether to automatically fit ROIs.')
+
+	## Choose whether or not to clip data
+	parser.add_argument('--clip', action='store', default=0, help='Decide clipping value.')
 
 	## Parse arguments
 	args = parser.parse_args()
